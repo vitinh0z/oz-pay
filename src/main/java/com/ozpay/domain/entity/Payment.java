@@ -20,7 +20,9 @@ public class Payment {
     private BigDecimal money;
     private PaymentStatus status;
     private String currency;
+    private String paymentMethodRequest;
     private LocalDateTime createdAt;
+
 
     public boolean isPositive(BigDecimal amount){
         return getMoney().compareTo(amount) <= 0;
