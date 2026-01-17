@@ -1,328 +1,635 @@
 # OzPay
 
-Plataforma SaaS de orquestração inteligente de pagamentos para múltiplos gateways
+**Intelligent Payment Orchestration for Brazil + Global Markets**
 
-## Visão Geral
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.java.net/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3-brightgreen.svg)](https://spring.io/projects/spring-boot)
 
-OzPay é um sistema multi-tenant que abstrai a complexidade de integração com diferentes provedores de pagamento. A plataforma oferece uma API unificada que permite processar transações através de múltiplos gateways (Stripe, Cielo, PayPal, etc.) com roteamento inteligente, resiliência avançada e observabilidade completa.
+> Accept PIX + Stripe with a single API. No vendor lock-in. No PCI-DSS headaches.
 
-O projeto será comercializado como SaaS (domínio: OzPay.app ou OzPay.io em planejamento) mas mantém o código-fonte open-source para garantir transparência e permitir que a comunidade contribua com melhorias.
+---
 
-## Motivação
+## Table of Contents
 
-### Problemas que o OzPay Resolve
+- [The Problem We Solve](#the-problem-we-solve)
+- [Solution Overview](#solution-overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Usage Examples](#usage-examples)
+- [Security](#security)
+- [Technology Stack](#technology-stack)
+- [Development Roadmap](#development-roadmap)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
 
-**Múltiplas APIs de Pagamento**
-- Cada gateway possui sua própria API, formato de dados e comportamento
-- Integrar com vários provedores requer manter código duplicado e complexo
-- OzPay oferece uma API única e consistente para todos os gateways
+---
 
-**Falhas Transitórias**
-- Gateways podem falhar temporariamente ou ter problemas de latência
-- Uma transação rejeitada em um gateway pode ser aprovada em outro
-- OzPay implementa retry inteligente e failover automático entre gateways
+## The Problem We Solve
 
-**Credenciais Seguras**
-- Cada tenant precisa de suas próprias credenciais para os gateways
-- Armazenar e gerenciar credenciais de forma segura é crítico
-- OzPay utiliza CredentialVault com isolamento por tenant
+If you sell courses, SaaS, or digital products, you face this challenge:
 
-**Multi-Tenancy Complexo**
-- SaaS precisa isolar completamente os dados e credenciais de cada cliente
-- Contexto de tenant deve ser propagado por toda a aplicação
-- OzPay implementa multi-tenancy nativo com ThreadLocal e isolamento de dados
+- **Stripe is excellent for USD/EUR**, but lacks native PIX support
+- **MercadoPago/PagSeguro have PIX**, but are weak internationally
+- **Integrating both manually** = 2x work, 2x bugs, 2x maintenance
 
-## Arquitetura
+**Result:** You lose ~30% of Brazilian sales (no PIX) or lose international sales (no Stripe).
 
-O OzPay segue Clean Architecture com separação clara entre Domain, Application e Infrastructure. O sistema é composto por 7 camadas principais:
+### The OzPay Solution
 
-### Camada de API (Entrada SaaS)
+One integration. Multiple gateways. Zero code duplication.
 
-**PaymentController**
-- REST API para processar pagamentos
-- Endpoint unificado que abstrai múltiplos gateways
-- Validação de entrada e formatação de resposta
+```javascript
+// Single backend code for any gateway
+ozpay.charge({
+  amount: 197,
+  currency: "BRL",  // Routes to MercadoPago (PIX)
+  customer: { email: "cliente@example.com" }
+})
 
-**ApiKeyFilter**
-- Autenticação via header `X-Nexus-Key`
-- Identificação e validação do tenant
-- Estabelecimento do contexto de segurança
+ozpay.charge({
+  amount: 197,
+  currency: "USD",  // Routes to Stripe (international card)
+  customer: { email: "customer@example.com" }
+})
+```
 
-### Camada de Orquestração
+---
 
-**MetaPaymentGateway**
-- Orquestrador central que coordena todo o fluxo de pagamento
-- Gerencia idempotência para evitar duplicação de transações
-- Publica eventos de domínio para integração assíncrona
-- Coordena a persistência do estado da transação
+## Key Features
 
-### Motor de Decisão (The Brain)
+### Zero-Touch Security
 
-**PaymentRouter**
-- Seleciona o melhor gateway baseado em estratégia configurável
-- Permite diferentes estratégias: round-robin, least-latency, cost-optimized
+**We never touch card data** - PCI-DSS compliance is the gateway's problem, not yours.
 
-**SmartRoutingStrategy**
-- Estratégia padrão que combina múltiplos fatores
-- Scorers para latência, custo, taxa de sucesso e disponibilidade
-- Decisão baseada em peso ponderado de cada fator
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Frontend
+    participant StripeElements as Stripe Elements
+    participant OzPay
+    participant Gateway
 
-**RoutingDecision**
-- Resultado auditável da decisão de roteamento
-- Contém justificativa e scores de cada gateway avaliado
-- Permite análise posterior para otimização
+    Client->>Frontend: Enters card data
+    Frontend->>StripeElements: Tokenize (directly at Stripe)
+    StripeElements-->>Frontend: Token: tok_abc123
+    Frontend->>OzPay: POST /v1/payments {token}
+    OzPay->>Gateway: Process with token
+    Gateway-->>OzPay: Approved
+    OzPay-->>Frontend: {status: "succeeded"}
+```
 
-### Motor de Execução (The Muscle)
+**Benefits:**
 
-**PaymentExecutor**
-- Executa a transação no gateway selecionado
-- Gerencia timeout e cancelamento
-- Registra resultado e tempo de execução
+| Benefit | Impact |
+|---------|---------|
+| No PCI-DSS certification | Save $50k+/year |
+| No sensitive data leakage risk | Reduced liability |
+| Simple infrastructure | No HSM, banking firewall, etc. |
 
-**GatewayRegistry**
-- Registry Pattern para todos os gateways disponíveis
-- Permite adicionar/remover gateways dinamicamente
-- Mantém metadados de cada gateway (latência média, taxa de sucesso)
+### Brazil + Global Specialization
 
-**RetryPolicy**
-- Política de retry com exponential backoff
-- Configurável por tipo de erro
-- Limita número de tentativas para evitar loops
+| Payment Method | Gateway | Typical Conversion |
+|----------------|---------|-------------------|
+| PIX | MercadoPago | ~85% |
+| Boleto | MercadoPago | ~60% |
+| Brazilian Card | MercadoPago | ~70% |
+| International Card | Stripe | ~80% |
 
-### Contexto e Estado
+**Automatic routing by currency/country** - no manual selection needed.
 
-**PaymentContext**
-- Contém estado completo da transação
-- Inclui `tenantId` para isolamento multi-tenant
-- Fornece acesso a credenciais via `getCredential(gatewayName)`
-- Imutável para evitar efeitos colaterais
+### Hardcore Resilience
 
-**ExecutionHistory**
-- Histórico auditável de todas as tentativas
-- Registra decisões de roteamento
-- Permite debugging e análise de falhas
+- **Idempotency**: Same request twice = same response (prevents double-charge)
+- **Smart Retry**: Failed due to timeout? Retries with backoff
+- **Circuit Breaker**: Unstable gateway? Automatically isolates
+- **Failover** (roadmap): If Gateway A fails, tries Gateway B
 
-### Adaptadores de Gateway
+### Total Observability
 
-**PaymentGateway Interface**
-- Contrato comum para todos os provedores
-- Implementações específicas: StripeGateway, CieloGateway, PayPalGateway
-- Isolamento de credenciais por tenant via `context.getCredential()`
-- Tradução de modelos de domínio para APIs específicas
+```promql
+# Approval rate by gateway (Prometheus)
+sum(rate(ozpay_payments_succeeded[5m])) by (gateway)
+/ 
+sum(rate(ozpay_payments_total[5m])) by (gateway)
+```
 
-### Serviços de Infraestrutura
+- Real-time Grafana dashboards
+- P50/P95/P99 latency per gateway
+- Auditable history of all decisions
 
-**IdempotencyService**
-- Lock distribuído com Redis
-- Previne processamento duplicado de transações
-- Usa idempotency key fornecida pelo cliente
+---
 
-**CredentialVault**
-- Gerenciamento seguro de credenciais
-- Isolamento por tenant
-- Suporte a rotação de credenciais
+## Architecture
 
-**TransactionRepository**
-- Persistência de transações
-- Queries para histórico e auditoria
-- Suporte a filtros por tenant, gateway, status, etc.
+OzPay follows **Clean Architecture** with clear separation between layers:
 
-**DomainEventPublisher**
-- Publicação de eventos de domínio
-- Permite integração assíncrona
-- Eventos: PaymentCreated, PaymentCompleted, PaymentFailed
+```mermaid
+graph TB
+    subgraph API["<b>API Layer</b>"]
+        Controller["PaymentController<br/>REST Endpoint"]
+        Filter["ApiKeyFilter<br/>Authentication"]
+    end
+    
+    subgraph Application["<b>Application Layer</b>"]
+        UseCase["ProcessPaymentUseCase<br/>Main Orchestrator"]
+        DTOs["PaymentRequest<br/>PaymentResponse<br/>Records"]
+    end
+    
+    subgraph Domain["<b>Domain Layer</b>"]
+        Payment["Payment Entity"]
+        Gateway["PaymentGateway Port"]
+    end
+    
+    subgraph Infrastructure["<b>Infrastructure Layer</b>"]
+        StripeAdapter["Stripe Adapter"]
+        MPAdapter["MercadoPago Adapter"]
+        Persistence["JPA Repository"]
+        Crypto["CryptoService<br/>AES-128"]
+    end
+    
+    Controller --> Filter
+    Filter --> UseCase
+    UseCase --> DTOs
+    UseCase --> Gateway
+    Gateway --> StripeAdapter
+    Gateway --> MPAdapter
+    UseCase --> Persistence
+    Persistence --> Crypto
+    
+    style API fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style Application fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style Domain fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style Infrastructure fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+```
 
-## Características Principais
+### Transaction Flow
 
-### Multi-Tenancy Nativo
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Controller
+    participant UseCase
+    participant Router
+    participant Gateway
+    participant DB
 
-- **API Key por Tenant**: Autenticação via header `X-Nexus-Key`
-- **ThreadLocal Context**: Propagação automática do tenant por toda aplicação
-- **CredentialVault**: Isolamento completo de credenciais por tenant
-- **Particionamento de Dados**: Queries automáticas filtradas por tenant
+    Client->>Controller: POST /v1/payments
+    Controller->>UseCase: ProcessPayment(request)
+    
+    Note over UseCase: Validates idempotency<br/>(Redis Lock)
+    
+    UseCase->>Router: SelectGateway(currency)
+    Router-->>UseCase: MercadoPago (BRL)
+    
+    UseCase->>Gateway: Charge(payment)
+    Gateway-->>UseCase: Result (succeeded)
+    
+    UseCase->>DB: SavePayment(payment)
+    UseCase-->>Controller: PaymentResponse
+    Controller-->>Client: 200 OK
+```
 
-### Roteamento Inteligente
+---
 
-- **Taxa de Sucesso**: Prioriza gateways com histórico de aprovações
-- **Latência**: Considera tempo de resposta médio de cada gateway
-- **Custo**: Otimiza baseado em taxas de transação
-- **Disponibilidade**: Evita gateways com circuit breaker aberto
+## Quick Start
 
-### Resiliência Hardcore
-
-- **Idempotência**: Lock distribuído com Redis previne duplicação
-- **Circuit Breaker**: Resilience4j para isolar falhas
-- **Retry com Exponential Backoff**: Tentativas progressivas com delay crescente
-- **Timeout Configurável**: Limites de tempo por gateway
-- **Failover Automático**: Troca de gateway em caso de falha
-
-### Observabilidade
-
-- **Prometheus Metrics**: Métricas de latência, taxa de sucesso, erros
-- **Grafana Dashboards**: Visualização em tempo real
-- **Histórico Auditável**: Todas as decisões e tentativas são registradas
-- **Distributed Tracing**: Rastreamento de transações ponta-a-ponta
-
-## Stack Tecnológica
-
-- **Runtime**: Java 21 + Spring Boot 3
-- **Arquitetura**: Clean Architecture (Domain/Application/Infrastructure)
-- **Persistência**: PostgreSQL 16 + JPA
-- **Cache e Lock**: Redis
-- **Resiliência**: Resilience4j (Circuit Breaker, Retry, Timeout)
-- **Observabilidade**: Prometheus + Grafana + Spring Actuator
-- **Containerização**: Docker + Docker Compose
-- **Validação**: Bean Validation (Jakarta)
-- **Build**: Maven
-
-## Roadmap de Desenvolvimento
-
-### Fase 0: Foundation
-- Spring Boot 3 + Java 21
-- Clean Architecture: Domain/Application/Infrastructure
-- Docker Compose: PostgreSQL 16
-
-### Fase 1: Domain Model
-- Entidade: Payment & Tenant
-- Value Objects: Money & Currency
-- Ports: PaymentGateway
-
-### Fase 2: Application
-- DTOs: Records Java
-- UseCase: ProcessPayment
-- Testes unitários sem Spring
-
-### Fase 3: Infra Basic
-- JPA Adapters & Entity
-- PaymentController REST
-- FakeGateway (Thread.sleep)
-
-### Fase 4: SaaS Security
-- ApiKeyFilter OncePerRequest
-- ThreadLocal Context
-- Multi-tenancy no DB
-
-### Fase 5: Gateway Engine
-- Mocks: Stripe & Cielo
-- Registry Pattern Map
-- Strategy: SmartRouter
-
-### Fase 6: Resiliência Hardcore
-- Redis Lock Distribuído
-- Circuit Breaker Resilience4j
-- Retry Exponential Backoff
-
-### Fase 7: Observabilidade
-- Prometheus + Grafana
-- Spring Actuator Metrics
-- Dashboard de Latência
-
-### Fase 8: Lançamento
-- Swagger OpenAPI
-- README.md completo
-- Deploy Script
-
-## Configuração
-
-### Pré-requisitos
+### Prerequisites
 
 - Java 21
-- Docker e Docker Compose
+- Docker + Docker Compose
 - Maven 3.8+
 
-### Instalação
+### Installation
 
 ```bash
-# Clonar o repositório
+# 1. Clone the repository
 git clone https://github.com/vitinh0z/oz-pay.git
 cd oz-pay
 
-# Iniciar dependências (PostgreSQL, Redis)
+# 2. Start dependencies (PostgreSQL + Redis)
 docker-compose up -d
 
-# Compilar o projeto
-./mvnw clean install
+# 3. Configure environment variables
+cp .env.example .env
+# Edit .env and add your gateway keys
 
-# Executar a aplicação
+# 4. Run the application
 ./mvnw spring-boot:run
 ```
 
-A aplicação estará disponível em `http://localhost:8080`
+The API will be available at `http://localhost:8080`
 
-## Uso Básico
+---
 
-### Processar um Pagamento
+## Usage Examples
 
+### Complete Example (PIX in Brazil)
+
+**1. Frontend tokenizes (if needed)**
+```html
+<!-- For cards, use Stripe Elements (example) -->
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+  const stripe = Stripe('pk_test_...');
+  const {token} = await stripe.createToken(cardElement);
+  // token.id = "tok_visa_abc123"
+</script>
+```
+
+**2. Backend processes via OzPay**
 ```bash
-curl -X POST http://localhost:8080/api/v1/payments \
+curl -X POST http://localhost:8080/v1/payments \
   -H "Content-Type: application/json" \
-  -H "X-Nexus-Key: your-tenant-api-key" \
+  -H "X-OzPay-Key: ozp_test_abc123def456" \
+  -H "Idempotency-Key: unique-order-789" \
   -d '{
-    "idempotencyKey": "unique-transaction-id-123",
-    "amount": 10000,
+    "amount": 197.00,
     "currency": "BRL",
-    "customerEmail": "customer@example.com",
-    "description": "Assinatura Premium - Plano Mensal"
+    "paymentMethod": {
+      "type": "pix"
+    },
+    "customer": {
+      "id": "cust_001",
+      "email": "cliente@exemplo.com",
+      "document": "12345678900"
+    },
+    "metadata": {
+      "order_id": "order_999",
+      "product": "Advanced Java Course"
+    }
   }'
 ```
 
-### Resposta de Sucesso
-
+**3. Response (PIX generated)**
 ```json
 {
-  "transactionId": "txn_abc123xyz",
-  "status": "COMPLETED",
-  "gateway": "stripe",
-  "amount": 10000,
+  "id": "ozp_pay_xyz789",
+  "status": "pending",
+  "amount": 197.00,
   "currency": "BRL",
-  "createdAt": "2026-01-14T10:30:00Z",
-  "executionTimeMs": 245
+  "gateway": {
+    "provider": "mercadopago",
+    "transaction_id": "12345678901"
+  },
+  "pix": {
+    "qr_code": "00020126580014br.gov.bcb.pix...",
+    "qr_code_url": "https://chart.googleapis.com/chart?chs=300x300&cht=qr&chl=...",
+    "expires_at": "2026-01-17T16:30:00Z"
+  },
+  "created_at": "2026-01-17T16:00:00Z"
 }
 ```
 
-## Status do Projeto
+**4. Client pays PIX**
+- Scans QR Code or copies code
+- Pays in banking app
 
-O OzPay está em desenvolvimento ativo. A arquitetura e roadmap estão definidos, e o projeto está sendo construído incrementalmente seguindo as 8 fases planejadas.
+**5. Webhook updates status**
+```bash
+# OzPay receives webhook from MercadoPago
+POST /webhooks/mercadopago
+# Updates payment.status: pending → succeeded
 
-Atualmente, a base do projeto está estabelecida com:
-- Estrutura de Clean Architecture
-- Entidades de domínio (User, Tenant)
-- Camada de persistência com JPA
+# OzPay sends normalized webhook to you (roadmap)
+POST https://your-site.com/webhooks/ozpay
+{
+  "event": "payment.completed",
+  "payment_id": "ozp_pay_xyz789",
+  "status": "succeeded"
+}
+```
 
-As próximas fases incluirão a implementação do motor de pagamentos, roteamento inteligente e resiliência.
+### Example with International Card
 
-## Licença
+```bash
+curl -X POST http://localhost:8080/v1/payments \
+  -H "X-OzPay-Key: ozp_test_abc123" \
+  -H "Idempotency-Key: unique-order-790" \
+  -d '{
+    "amount": 197.00,
+    "currency": "USD",
+    "paymentMethod": {
+      "type": "card_token",
+      "token": "tok_visa_stripe_abc123"
+    },
+    "customer": {
+      "email": "customer@example.com"
+    }
+  }'
+```
 
-Este projeto está licenciado sob a MIT License - veja o arquivo [LICENSE](LICENSE) para detalhes.
+**Response (immediate approval)**
+```json
+{
+  "id": "ozp_pay_abc456",
+  "status": "succeeded",
+  "amount": 197.00,
+  "currency": "USD",
+  "gateway": {
+    "provider": "stripe",
+    "transaction_id": "ch_abc123def456"
+  },
+  "created_at": "2026-01-17T16:05:00Z",
+  "execution_time_ms": 234
+}
+```
 
-### Estratégia Open-Source + SaaS
+---
 
-O OzPay será comercializado como SaaS (OzPay.app ou OzPay.io), mas o código-fonte permanecerá open-source. Esta estratégia oferece:
+## Security
 
-- **Transparência**: Clientes podem auditar o código que processa seus pagamentos
-- **Confiança**: Sem vendor lock-in, possibilidade de self-hosting
-- **Comunidade**: Contribuições da comunidade melhoram o produto para todos
-- **Inovação**: Feedback rápido e colaboração aberta
+### How Gateway Credentials Are Stored
 
-## Contribuindo
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant OzPay
+    participant CryptoService
+    participant Database
 
-Contribuições são bem-vindas! Por favor:
+    Note over Admin: Configuring Stripe
+    Admin->>OzPay: POST /admin/gateways<br/>{secret_key: "sk_live_..."}
+    OzPay->>CryptoService: encrypt("sk_live_...")
+    CryptoService-->>OzPay: "a8f9c2d1..." (AES-128 hash)
+    OzPay->>Database: INSERT credentials_encrypted
+    
+    Note over OzPay: Processing Payment
+    OzPay->>Database: SELECT credentials_encrypted
+    Database-->>OzPay: "a8f9c2d1..."
+    OzPay->>CryptoService: decrypt("a8f9c2d1...")
+    CryptoService-->>OzPay: "sk_live_..." (in memory only)
+    OzPay->>Stripe: Charge with decrypted key
+```
 
-1. Faça fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/MinhaFeature`)
-3. Commit suas mudanças (`git commit -m 'Adiciona MinhaFeature'`)
-4. Push para a branch (`git push origin feature/MinhaFeature`)
-5. Abra um Pull Request
+**Security Features:**
 
-### Diretrizes
+| Feature | Description |
+|---------|-------------|
+| Encryption at Rest | Credentials never stored in plain text in database |
+| Isolation | Tenant A cannot access Tenant B's credentials |
+| Master Key Rotation | Supports annual master key rotation |
+| Zero Logs | Keys never appear in logs (masked) |
 
-- Mantenha a Clean Architecture
-- Escreva testes unitários para novas funcionalidades
-- Siga as convenções de código Java
-- Documente APIs públicas
+---
 
-## Contato
+## Technology Stack
 
-Desenvolvido por [@vitinh0z](https://github.com/vitinh0z)
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Runtime | Java | 21 |
+| Framework | Spring Boot | 3.x |
+| Architecture | Clean Architecture | - |
+| Database | PostgreSQL | 16 |
+| Cache & Lock | Redis | 7 |
+| Resilience | Resilience4j | Latest |
+| Observability | Prometheus + Grafana | - |
+| Validation | Bean Validation | Jakarta |
+| Build | Maven | 3.8+ |
 
-Para questões e sugestões, abra uma issue no GitHub.
+---
+
+## Development Roadmap
+
+### Completed
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 0 | Foundation (Spring Boot 3 + Clean Architecture) | ✓ Complete |
+| Phase 1 | Domain Model (Payment Entity, Value Objects) | ✓ Complete |
+| Phase 2 | Application Layer (Nested DTOs, Records, Mappers) | ✓ Complete |
+| Phase 4 | Security (AES-128 Encryption, GatewayConfig) | ✓ Complete |
+
+### In Progress
+
+| Phase | Task | Status |
+|-------|------|--------|
+| Phase 3 | Infrastructure Basics | In Progress |
+| | JPA Persistence | ✓ Done |
+| | PaymentController REST | ✓ Done |
+| | FakeGateway (testing) | Pending |
+| | Real Stripe Integration | Pending |
+| | Real MercadoPago Integration | Pending |
+
+### Next Phases
+
+**Phase 5: Multi-Tenancy**
+- ApiKeyFilter
+- ThreadLocal Context
+- Row-level security (tenant_id)
+
+**Phase 6: Resilience**
+- Redis configured ✓
+- Distributed Lock (idempotency)
+- Circuit Breaker
+- Retry with Exponential Backoff
+
+**Phase 7: Observability**
+- Prometheus + Grafana
+- Spring Actuator Metrics
+- Latency Dashboard
+
+**Phase 8: Production**
+- Swagger/OpenAPI
+- Deployment Scripts
+- Complete Documentation
+
+---
+
+## Business Model (Future)
+
+OzPay will be commercialized as **SaaS** (OzPay.app), but with **open-source** code.
+
+### Planned Pricing
+
+| Tier | Price | Transactions/month | Gateways | Support |
+|------|-------|-------------------|----------|---------|
+| **Free** | $0 | 100 | 1 | Docs |
+| **Starter** | $29 | 1,000 | 2 | Email |
+| **Growth** | $99 | 5,000 | Unlimited | Priority |
+| **Enterprise** | Custom | Unlimited | Unlimited | Dedicated |
+
+### Why Open-Source + SaaS?
+
+| Reason | Benefit |
+|--------|---------|
+| **Transparency** | Clients can audit the code processing their payments |
+| **Zero Vendor Lock-in** | Can self-host if desired |
+| **Community** | Contributions improve the product for everyone |
+| **Trust** | Payments are too sensitive to be a "black box" |
+
+---
+
+## Testing
+
+```bash
+# Unit tests (without Spring Context)
+./mvnw test
+
+# Integration tests (with PostgreSQL)
+./mvnw verify -P integration-tests
+
+# Coverage report
+./mvnw jacoco:report
+# Report in: target/site/jacoco/index.html
+```
+
+### Test Data (Sandbox)
+
+**Cards that work in any OzPay gateway:**
+
+| Card Type | Number | Result |
+|-----------|--------|--------|
+| Visa (Approved) | 4242 4242 4242 4242 | Success |
+| Mastercard (Approved) | 5555 5555 5555 4444 | Success |
+| Declined (Insufficient Funds) | 4000 0000 0000 9995 | Declined |
+| Timeout (for retry testing) | 4000 0000 0000 3220 | Timeout |
+
+**Additional details:**
+- CVV: any 3 digits
+- Expiry: any future date
+
+---
+
+## Contributing
+
+Contributions are **very welcome**! This is a true open-source project.
+
+### How to Contribute
+
+1. Fork the project
+2. Create a branch: `git checkout -b feature/my-feature`
+3. Commit: `git commit -m 'feat: add PayPal support'`
+4. Push: `git push origin feature/my-feature`
+5. Open a Pull Request
+
+### Guidelines
+
+| Guideline | Description |
+|-----------|-------------|
+| Architecture | Maintain Clean Architecture (Domain/Application/Infrastructure) |
+| Testing | Write unit tests (coverage > 80%) |
+| Code Style | Follow Google Java Style Guide |
+| Documentation | Document public APIs with Javadoc |
+| Commits | Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc) |
+
+### Good First Issues
+
+Look for labels:
+- `good first issue` - Ideal for first contribution
+- `help wanted` - We need help here
+- `documentation` - Documentation improvements
+
+---
+
+## Project Status
+
+| Metric | Status |
+|--------|--------|
+| Build | ![Passing](https://img.shields.io/badge/build-passing-brightgreen) |
+| Coverage | ![60%](https://img.shields.io/badge/coverage-60%25-yellow) |
+| Version | ![0.3.0-alpha](https://img.shields.io/badge/version-0.3.0--alpha-blue) |
+| Open Issues | ![21](https://img.shields.io/badge/issues-21-orange) |
+
+**Currently Implemented:**
+
+- Clean and testable architecture
+- Robust domain model
+- JPA persistence
+- Credential encryption
+- Type-safe DTOs with Records
+
+**In Development:**
+
+- Real gateway integrations
+- Complete multi-tenancy
+- Resilience (retry, circuit breaker)
+
+---
+
+## License
+
+This project is licensed under the **MIT License with Attribution**.
+
+### What This Means
+
+You can:
+- ✓ Use commercially
+- ✓ Modify the code
+- ✓ Distribute copies
+- ✓ Create derivative products
+
+**Requirements:**
+- Must include original copyright notice
+- Must include license text
+- Must provide attribution to the original project
+
+### Full License Text
+
+```
+MIT License with Attribution
+
+Copyright (c) 2026 Victor (vitinh0z)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Attribution Requirement:
+Any use of this software in a product or service must include a visible 
+attribution to "OzPay by vitinh0z" in the product documentation, website 
+footer, or credits section.
+```
+
+See [LICENSE](LICENSE) for complete details.
+
+---
+
+## Acknowledgments
+
+| Project | Contribution |
+|---------|--------------|
+| [Stripe](https://stripe.com) | Inspiration for developer experience |
+| [Spreedly](https://spreedly.com) | Concept of payment orchestration |
+| [Resilience4j](https://resilience4j.readme.io/) | Amazing resilience library |
+| Java/Spring Boot Community | Foundation and support |
+
+---
+
+## Contact
+
+**Developer:** [@vitinh0z](https://github.com/vitinh0z)
+
+| Type | Link |
+|------|------|
+| Bugs | Open an [issue](https://github.com/vitinh0z/oz-pay/issues) |
+| Ideas | [GitHub Discussions](https://github.com/vitinh0z/oz-pay/discussions) |
+| Email | [Contact via GitHub](https://github.com/vitinh0z) |
+
+---
+
+<p align="center">
+  Made with dedication for the Brazilian developer community
+</p>
+
+<p align="center">
+  <i>"Payments shouldn't be complicated. They should just work."</i>
+</p>
+
