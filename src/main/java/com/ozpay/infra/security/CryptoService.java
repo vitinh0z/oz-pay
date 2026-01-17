@@ -14,7 +14,7 @@ import java.util.Base64;
 @Service
 public class CryptoService {
 
-    private final String SECRET_KEY = "forabolsonaro";
+    private final String SECRET_KEY = "forabolsonaro2026";
 
     public String encrypted (String data){
 
