@@ -20,7 +20,7 @@ public class Payment {
     private BigDecimal money;
     private PaymentStatus status;
     private String currency;
-    private String paymentMethodRequest;
+    private String gatewayTransactionId;
     private LocalDateTime createdAt;
 
 
